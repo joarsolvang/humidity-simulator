@@ -18,7 +18,6 @@ class HumiditySource:
     """
 
     name: str
-    max_emissions_rate: float
     max_emissions_rate_unit: Literal["g/h", "kg/h", "lb/h"]
     timestamps: list[str]
     timestamp_format: str
@@ -29,7 +28,6 @@ class HumiditySource:
     def __post_init__(self) -> None:
         """Validate the humidity source data after initialization."""
         self._validate_timeseries_length()
-        self._validate_values_within_max()
 
     def _validate_timeseries_length(self) -> None:
         """Ensure timestamps and values have the same length."""
@@ -39,16 +37,3 @@ class HumiditySource:
                 f"Got {len(self.timestamps)} timestamps and {len(self.values)} values."
             )
             raise ValueError(msg)
-
-    def _validate_values_within_max(self) -> None:
-        """Ensure no emission value exceeds the maximum emissions rate."""
-        for i, value in enumerate(self.values):
-            if value > self.max_emissions_rate:
-                msg = (
-                    f"Emission value at index {i} ({value}) exceeds "
-                    f"max_emissions_rate ({self.max_emissions_rate})."
-                )
-                raise ValueError(msg)
-            if value < 0:
-                msg = f"Emission value at index {i} ({value}) cannot be negative."
-                raise ValueError(msg)

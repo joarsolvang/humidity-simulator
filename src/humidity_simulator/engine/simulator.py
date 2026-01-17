@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import ClassVar, Literal
 
 from humidity_simulator.models import HumiditySource
 
@@ -12,8 +12,8 @@ class UnitConsistencyError(Exception):
 class InternalHumiditySimulator:
     """Simulator of internal humidity"""
 
-    METRIC_UNITS = {"m2", "m", "c", "k"}
-    IMPERIAL_UNITS = {"ft2", "ft", "f"}
+    METRIC_UNITS: ClassVar[set[str]] = {"m2", "m", "c", "k"}
+    IMPERIAL_UNITS: ClassVar[set[str]] = {"ft2", "ft", "f"}
 
     def __init__(
         self,
@@ -75,4 +75,3 @@ class InternalHumiditySimulator:
             details = ", ".join(f"{name}={system}" for name, system in systems.items())
             msg = f"Inconsistent unit systems: {details}. All units must be metric or imperial."
             raise UnitConsistencyError(msg)
-
