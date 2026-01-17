@@ -1,5 +1,6 @@
 from typing import Literal
 
+from humidity_simulator.models import HumiditySource
 
 UnitSystem = Literal["metric", "imperial"]
 
