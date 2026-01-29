@@ -7,7 +7,10 @@ authors = [
     { name = "Your Name", email = "your.name@res-group.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "matplotlib>=3.10.8",
+    "pandas>=2.0.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -64,7 +67,7 @@ lint.select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101"]
+"tests/**/*.py" = ["S101", "SLF001", "FBT001"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -82,6 +85,9 @@ omit = ["tests/*"]
 
 [tool.coverage.report]
 skip_empty = true
+
+[tool.deptry]
+known_first_party = ["humidity_simulator"]
 
 [tool.poe.tasks]
 
@@ -106,22 +112,22 @@ help = "Run all pre-commit checks"
 sequence = ["fmt", "lint", "test"]
 
 [tool.poe.tasks.fmt-ruff-check]
-cmd = "ruff check --fix-only ."
+cmd = "ruff check --fix-only src tests"
 
 [tool.poe.tasks.fmt-ruff-format]
-cmd = "ruff format ."
+cmd = "ruff format src tests"
 
 [tool.poe.tasks.lint-ruff-check]
-cmd = "ruff check ."
+cmd = "ruff check src tests"
 
 [tool.poe.tasks.lint-ruff-format]
-cmd = "ruff format --check ."
+cmd = "ruff format --check src tests"
 
 [tool.poe.tasks.lint-mypy]
-cmd = "mypy ."
+cmd = "mypy src tests"
 
 [tool.poe.tasks.lint-deps]
-cmd = "deptry ."
+cmd = "deptry src"
 
 [tool.poe.tasks.test-run]
 cmd = "coverage run -m pytest tests/"
