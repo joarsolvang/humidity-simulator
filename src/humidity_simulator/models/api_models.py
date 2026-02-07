@@ -24,5 +24,5 @@ class SimulationRequest(BaseModel):
     starting_relative_humidity: float = Field(ge=0, le=100, description="Initial relative humidity (0-100%)")
     time_resolution_minutes: int = Field(default=30, gt=0, description="Time step for simulation in minutes")
 
-    # Humidity sources - reuses the existing HumiditySource model
+    # Humidity sources
     sources: list[HumiditySource] = Field(description="List of humidity sources to simulate")
