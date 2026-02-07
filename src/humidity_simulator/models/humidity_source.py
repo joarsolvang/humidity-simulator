@@ -1,14 +1,13 @@
-from dataclasses import dataclass
 from typing import Literal
 
+from pydantic import BaseModel, model_validator
 
-@dataclass
-class HumiditySource:
+
+class HumiditySource(BaseModel):
     """A source of humidity emissions with associated timeseries data.
 
     Attributes:
         name: Identifier for the humidity source (e.g., "shower", "cooking", "breathing").
-        max_emissions_rate: Maximum emission rate the source can produce.
         max_emissions_rate_unit: Unit for the maximum emissions rate.
         timestamps: List of timestamp strings representing when emissions occur.
         timestamp_format: Format string describing the timestamp format (e.g., "%Y-%m-%d %H:%M:%S").
@@ -25,11 +24,8 @@ class HumiditySource:
     values: list[float]
     values_unit: Literal["g/h", "kg/h", "lb/h"]
 
-    def __post_init__(self) -> None:
-        """Validate the humidity source data after initialization."""
-        self._validate_timeseries_length()
-
-    def _validate_timeseries_length(self) -> None:
+    @model_validator(mode="after")
+    def validate_timeseries_length(self) -> "HumiditySource":
         """Ensure timestamps and values have the same length."""
         if len(self.timestamps) != len(self.values):
             msg = (
@@ -37,3 +33,4 @@ class HumiditySource:
                 f"Got {len(self.timestamps)} timestamps and {len(self.values)} values."
             )
             raise ValueError(msg)
+        return self
