@@ -1,9 +1,18 @@
 """Wait for the API server to be ready."""
 
+import logging
 import sys
 import time
 
 import httpx
+
+# Configure logging to stdout (default is stderr)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger(__name__)
 
 
 def wait_for_server(url: str = "http://localhost:8000/health", timeout: int = 30) -> bool:
@@ -13,13 +22,13 @@ def wait_for_server(url: str = "http://localhost:8000/health", timeout: int = 30
         try:
             response = httpx.get(url, timeout=2.0)
             if response.status_code == 200:
-                print(f"Server ready at {url}")
+                logger.info(f"Server ready at {url}")
                 return True
         except httpx.RequestError:
             pass
-        print("Waiting for server...")
+        logger.info("Waiting for server...")
         time.sleep(1)
-    print(f"Timeout waiting for server at {url}")
+    logger.error(f"Timeout waiting for server at {url}")
     return False
 
 
