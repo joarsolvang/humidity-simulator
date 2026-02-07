@@ -175,3 +175,4 @@ cython_debug/
 /.claude
 *.png
 /notebooks
+CLAUDE.md

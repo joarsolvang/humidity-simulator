@@ -8,8 +8,11 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.115.0",
     "matplotlib>=3.10.8",
     "pandas>=2.0.0",
+    "pydantic>=2.0.0",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 [build-system]
@@ -26,6 +29,7 @@ path = "src/humidity_simulator/__init__.py"
 dev = [
     "coverage>=7.7.0",
     "deptry>=0.23.0",
+    "httpx>=0.28.0",
     "mypy>=1.15.0",
     "poethepoet>=0.33.1",
     "pytest>=8.3.5",
@@ -88,6 +92,7 @@ skip_empty = true
 
 [tool.deptry]
 known_first_party = ["humidity_simulator"]
+per_rule_ignores = {DEP002 = ["uvicorn"]}
 
 [tool.poe.tasks]
 
@@ -101,7 +106,7 @@ sequence = ["lint-ruff-format", "lint-ruff-check", "lint-mypy", "lint-deps"]
 
 [tool.poe.tasks.test]
 help = "Test the project"
-sequence = ["test-run", "test-report"]
+sequence = ["test-run", "test-report", "docker-compose-down"]
 
 [tool.poe.tasks.coverage]
 help = "View the test coverage report"
@@ -131,6 +136,7 @@ cmd = "deptry src"
 
 [tool.poe.tasks.test-run]
 cmd = "coverage run -m pytest tests/"
+deps = ["docker-compose-up"]
 
 [tool.poe.tasks.test-report]
 cmd = "coverage report -i"
@@ -140,3 +146,17 @@ cmd = "coverage html"
 
 [tool.poe.tasks.cov-view]
 cmd = "python -m webbrowser -t $POE_ROOT/htmlcov/index.html"
+
+[tool.poe.tasks.docker-compose-up]
+help = "Build and start the Docker container"
+sequence = ["_docker-compose-start", "_docker-wait"]
+
+[tool.poe.tasks._docker-compose-start]
+cmd = "docker compose up -d --build"
+
+[tool.poe.tasks._docker-wait]
+cmd = "python tests/utils/wait_for_server.py"
+
+[tool.poe.tasks.docker-compose-down]
+help = "Stop and remove the Docker container"
+cmd = "docker compose down"
