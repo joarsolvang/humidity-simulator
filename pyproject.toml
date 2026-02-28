@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "matplotlib>=3.10.8",
     "pandas>=2.0.0",
+    "pulp>=3.3.0",
     "pydantic>=2.0.0",
     "uvicorn[standard]>=0.34.0",
 ]
@@ -91,7 +92,7 @@ omit = ["tests/*"]
 skip_empty = true
 
 [tool.deptry]
-known_first_party = ["humidity_simulator"]
+known_first_party = ["humidity_simulator", "agile_predict_api"]
 per_rule_ignores = {DEP002 = ["uvicorn"]}
 
 [tool.poe.tasks]

@@ -53,7 +53,6 @@ class InternalHumiditySimulator:
         self.ceiling_height_unit = ceiling_height_unit
         self.internal_temperature = internal_temperature
         self.internal_temperature_unit = internal_temperature_unit
-        self.environment_volume = self.surface_area * self.ceiling_height
 
         # Store metric values for calculations
         self._volume_m3 = self._calculate_volume_m3()
@@ -193,7 +192,9 @@ class InternalHumiditySimulator:
         # Resample each series within its own time range, then reindex to continuous range
         resampled_series = []
         for series in series_list:
-            series_resampled = series.resample(time_resolution).ffill()
+            old_time_resolution = series.index[1] - series.index[0]
+            fill_limit = max((old_time_resolution.seconds // time_resolution.seconds) - 1, 1)
+            series_resampled = series.resample(time_resolution).ffill(limit=fill_limit)
             series_continuous = series_resampled.reindex(continuous_index)
             resampled_series.append(series_continuous)
 

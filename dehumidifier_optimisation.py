@@ -174,7 +174,11 @@ if __name__ == "__main__":
     prob += humidity_extracted[0] == 0
 
     for i in range(len(time_stamps) - 1):
-        prob += absolute_humidity[i] == ((forecast_absolute_humidity[i] * simulator._volume_m3) + humidity_extracted[i]) / simulator._volume_m3
+        prob += ventilation[i] == -((absolute_humidity[i] * simulator._volume_m3) - (External_RH[i] * simulator._volume_m3 * ACH))
+    prob += humidity_extracted[0] == 0
+
+    for i in range(len(time_stamps) - 1):
+        prob += absolute_humidity[i] == ((forecast_absolute_humidity[i] * simulator._volume_m3) + humidity_extracted[i] + ventilation[i]) / simulator._volume_m3
     prob += absolute_humidity[0] == forecast_absolute_humidity[0]
 
     prob.solve(pl.PULP_CBC_CMD(msg=True, timeLimit=15))
