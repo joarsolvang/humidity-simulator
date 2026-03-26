@@ -371,6 +371,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "matplotlib" },
+    { name = "numpy" },
     { name = "pandas" },
     { name = "pulp" },
     { name = "pydantic" },
@@ -392,6 +393,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "numpy", specifier = ">=2.4.1" },
     { name = "pandas", specifier = ">=2.0.0" },
     { name = "pulp", specifier = ">=3.3.0" },
     { name = "pydantic", specifier = ">=2.0.0" },

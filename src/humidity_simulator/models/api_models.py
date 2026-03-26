@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from humidity_simulator.models.humidity_source import HumiditySource
+from humidity_simulator.models.humidity_source import AmbientConditions, HumiditySource
 
 
 class SimulationRequest(BaseModel):
@@ -19,6 +19,7 @@ class SimulationRequest(BaseModel):
     internal_temperature_unit: Literal["c", "k", "f"] = Field(
         description="Unit for temperature (Celsius, Kelvin, Fahrenheit)"
     )
+    air_changes_per_hour: float = Field(description="Air Changes per Hour (ACH or ACPH)")
 
     # Simulation parameters
     starting_relative_humidity: float = Field(ge=0, le=100, description="Initial relative humidity (0-100%)")
@@ -26,3 +27,8 @@ class SimulationRequest(BaseModel):
 
     # Humidity sources
     sources: list[HumiditySource] = Field(description="List of humidity sources to simulate")
+
+    # Ambient Conditions
+    external_ambient_conditions: AmbientConditions = Field(
+        description="A class containing forecast ambient conditions."
+    )

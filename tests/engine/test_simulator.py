@@ -20,6 +20,7 @@ class TestUnitValidation:
             ceiling_height_unit="m",
             internal_temperature=20,
             internal_temperature_unit="c",
+            air_changes_per_hour=0.1,
         )
         assert sim.surface_area == 100
         assert sim.ceiling_height == 3
@@ -34,6 +35,7 @@ class TestUnitValidation:
             ceiling_height_unit="m",
             internal_temperature=293,
             internal_temperature_unit="k",
+            air_changes_per_hour=0.1,
         )
         assert sim.internal_temperature_unit == "k"
 
@@ -46,6 +48,7 @@ class TestUnitValidation:
             ceiling_height_unit="ft",
             internal_temperature=68,
             internal_temperature_unit="f",
+            air_changes_per_hour=0.1,
         )
         assert sim.surface_area == 1000
         assert sim.ceiling_height == 10
@@ -61,6 +64,7 @@ class TestUnitValidation:
                 ceiling_height_unit="ft",
                 internal_temperature=20,
                 internal_temperature_unit="c",
+                air_changes_per_hour=0.1,
             )
 
     def test_mixed_area_imperial_height_metric_raises(self) -> None:
@@ -73,6 +77,7 @@ class TestUnitValidation:
                 ceiling_height_unit="m",
                 internal_temperature=68,
                 internal_temperature_unit="f",
+                air_changes_per_hour=0.1,
             )
 
     def test_mixed_metric_dimensions_imperial_temperature_raises(self) -> None:
@@ -85,6 +90,7 @@ class TestUnitValidation:
                 ceiling_height_unit="m",
                 internal_temperature=68,
                 internal_temperature_unit="f",
+                air_changes_per_hour=0.1,
             )
 
     def test_mixed_imperial_dimensions_metric_temperature_raises(self) -> None:
@@ -97,6 +103,7 @@ class TestUnitValidation:
                 ceiling_height_unit="ft",
                 internal_temperature=20,
                 internal_temperature_unit="c",
+                air_changes_per_hour=0.1,
             )
 
     def test_error_message_contains_unit_details(self) -> None:
@@ -109,6 +116,7 @@ class TestUnitValidation:
                 ceiling_height_unit="ft",
                 internal_temperature=20,
                 internal_temperature_unit="c",
+                air_changes_per_hour=0.1,
             )
         error_message = str(exc_info.value)
         assert "surface_area_unit=metric" in error_message
