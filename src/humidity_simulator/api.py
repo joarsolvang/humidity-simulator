@@ -37,6 +37,7 @@ def simulate(request: SimulationRequest) -> SimulationResult:
         ceiling_height_unit=request.ceiling_height_unit,
         internal_temperature=request.internal_temperature,
         internal_temperature_unit=request.internal_temperature_unit,
+        air_changes_per_hour=request.air_changes_per_hour,
     )
 
     # Step 2: Convert time resolution from minutes to pandas Timedelta
@@ -48,6 +49,7 @@ def simulate(request: SimulationRequest) -> SimulationResult:
         starting_relative_humidity=request.starting_relative_humidity,
         humidity_sources=request.sources,
         time_resolution=time_resolution,
+        external_ambient_conditions=request.external_ambient_conditions,
     )
 
     logger.info(f"Simulation complete, returning {len(result.timestamps)} data points")

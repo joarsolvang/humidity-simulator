@@ -1,7 +1,6 @@
 import logging
-import math
 from pathlib import Path
-from typing import ClassVar, Literal, Union
+from typing import ClassVar, Literal
 from zoneinfo import ZoneInfoNotFoundError
 
 import matplotlib.pyplot as plt
@@ -134,7 +133,7 @@ class InternalHumiditySimulator:
         e = absolute_humidity * t_kelvin / 2.16679
         e_s = self._saturation_vapor_pressure(temperature_celsius)
         rh = (e / e_s) * 100
-        return min(rh, 100.0)  # Cap at 100% (condensation occurs beyond this)
+        return min(float(rh), 100.0)  # Cap at 100% (condensation occurs beyond this)
 
     def _build_emissions_dataframe(
         self,
@@ -221,6 +220,7 @@ class InternalHumiditySimulator:
         Args:
             starting_humidity: Initial relative humidity in percent (0-100).
             humidity_sources: List of humidity sources with timeseries data.
+            external_ambient_conditions:
             time_resolution: Time resolution for the simulation. Defaults to 30 minutes.
             plot_results: If True, generate and save plots of the simulation results.
             plot_path: Directory path where plots will be saved. Defaults to "outputs".
@@ -251,7 +251,7 @@ class InternalHumiditySimulator:
         time_delta_hours = time_resolution.total_seconds() / 3600
 
         # Calculate water added at each step (g/m³)
-        water_added_per_step = (total_emissions * time_delta_hours)
+        water_added_per_step = total_emissions * time_delta_hours
         water_added_per_step = water_added_per_step.to_frame(name="water added [g]")
 
         # Calculate cumulative absolute humidity
@@ -262,33 +262,37 @@ class InternalHumiditySimulator:
         external_ambient_conditions_df = external_ambient_conditions.to_dateframe()
         external_ambient_conditions_df["External Absolute Humidity g/m3"] = self._absolute_humidity_from_relative(
             external_ambient_conditions_df["relative_humidity_2m"].values,
-            external_ambient_conditions_df["ambient_temperature"].values
+            external_ambient_conditions_df["ambient_temperature"].values,
         )
         external_ambient_conditions_df = external_ambient_conditions_df.resample(time_resolution).ffill()
-        data_df = external_ambient_conditions_df.join(water_added_per_step["humidity added [g]"])
-        data_df["humidity added [g]"] = data_df["humidity added [g]"].fillna(0)
+        humidity_conditions_df = external_ambient_conditions_df.join(water_added_per_step["water added [g]"])
+        humidity_conditions_df["water added [g]"] = humidity_conditions_df["water added [g]"].fillna(0)
 
         ventilated_absolute_humidity = [starting_abs_humidity]
-        for i in range(len(data_df)-1):
+        for i in range(len(humidity_conditions_df) - 1):
             remaining_humidity = ventilated_absolute_humidity[i] * self._volume_m3 * (1 - self.air_changes_per_hour)
-            external_humidity = data_df["External Absolute Humidity g/m3"].iloc[i] * self._volume_m3 * self.air_changes_per_hour
-            added_humidity = data_df["humidity added [g]"].iloc[i]
+            external_humidity = (
+                humidity_conditions_df["External Absolute Humidity g/m3"].iloc[i]
+                * self._volume_m3
+                * self.air_changes_per_hour
+            )
+            added_humidity = humidity_conditions_df["water added [g]"].iloc[i]
             ventilated_absolute_humidity.append(
                 (remaining_humidity + external_humidity + added_humidity) / self._volume_m3
             )
-        data_df["ventilated_absolute_humidity"] = ventilated_absolute_humidity
+        humidity_conditions_df["ventilated_absolute_humidity"] = ventilated_absolute_humidity
 
         # Calculate relative humidity (vectorized)
         t_kelvin = self._temperature_celsius + 273.15
-        e = data_df["ventilated_absolute_humidity"] * t_kelvin / 2.16679
+        e = humidity_conditions_df["ventilated_absolute_humidity"] * t_kelvin / 2.16679
         e_s = self._saturation_vapor_pressure(self._temperature_celsius)
-        relative_humidity = ((e / e_s) * 100).clip(upper=100.0)
+        humidity_conditions_df["relative_humidity"] = ((e / e_s) * 100).clip(upper=100.0)
 
         # Build result
         result = SimulationResult(
-            timestamps=[ts.isoformat() for ts in emissions_df.index],
-            relative_humidity=relative_humidity.round(2).tolist(),
-            absolute_humidity=data_df["ventilated_absolute_humidity"].round(4).tolist(),
+            timestamps=[ts.isoformat() for ts in humidity_conditions_df.index],
+            relative_humidity=humidity_conditions_df["relative_humidity"].round(4).tolist(),
+            absolute_humidity=humidity_conditions_df["ventilated_absolute_humidity"].round(4).tolist(),
         )
 
         if plot_results:
@@ -346,6 +350,8 @@ class InternalHumiditySimulator:
         output_file = plot_path / f"{plot_name}.png"
         fig.savefig(output_file, dpi=150, bbox_inches="tight")
         plt.close(fig)
+        msg = f"Plot saved to: {output_file}"
+        logger.info(msg)
 
     def _get_unit_system(self, unit: str) -> UnitSystem:
         """Determine whether a unit belongs to metric or imperial system."""
