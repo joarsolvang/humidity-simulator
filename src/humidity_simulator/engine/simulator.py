@@ -223,7 +223,7 @@ class InternalHumiditySimulator:
         Args:
             starting_humidity: Initial relative humidity in percent (0-100).
             humidity_sources: List of humidity sources with timeseries data.
-            external_ambient_conditions:
+            external_ambient_conditions: Class containing external ambient conditions
             time_resolution: Time resolution for the simulation. Defaults to 30 minutes.
             plot_results: If True, generate and save plots of the simulation results.
             plot_path: Directory path where plots will be saved. Defaults to "outputs".
