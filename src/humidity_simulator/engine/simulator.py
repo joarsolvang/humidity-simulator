@@ -117,6 +117,9 @@ class InternalHumiditySimulator:
         e_s = self._saturation_vapor_pressure(temperature_celsius)
         e = (relative_humidity / 100) * e_s
         t_kelvin = temperature_celsius + 273.15
+        # Absolute humidity formula: AH = (e * Mw) / (R * T)
+        # Mw = 18.015 g/mol, R = 8.314 J/(mol·K)
+        # Simplified: AH = 2.16679 * e / T_kelvin (g/m³)
         return 2.16679 * e / t_kelvin
 
     def _relative_humidity_from_absolute(self, absolute_humidity: float, temperature_celsius: float) -> float:
