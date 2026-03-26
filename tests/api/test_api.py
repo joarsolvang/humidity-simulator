@@ -29,6 +29,7 @@ class TestSimulateEndpoint:
             "ceiling_height_unit": "m",
             "internal_temperature": 20,
             "internal_temperature_unit": "c",
+            "air_changes_per_hour": 0.5,
             "starting_relative_humidity": 50,
             "time_resolution_minutes": 30,
             "sources": [
@@ -42,6 +43,15 @@ class TestSimulateEndpoint:
                     "max_emissions_rate_unit": "g/h",
                 }
             ],
+            "external_ambient_conditions": {
+                "name": "mock",
+                "timestamps": ["2024-01-01 07:00", "2024-01-01 07:30"],
+                "timestamp_format": "%Y-%m-%d %H:%M",
+                "timezone": "UTC",
+                "relative_humidity": [60.0, 60.0],
+                "ambient_temperature": [10.0, 10.0],
+                "ambient_temperature_unit": "Celcius",
+            },
         }
         response = client.post("/simulate", json=request_data)
         assert response.status_code == 200
@@ -54,6 +64,7 @@ class TestSimulateEndpoint:
             "ceiling_height_unit": "m",
             "internal_temperature": 20,
             "internal_temperature_unit": "c",
+            "air_changes_per_hour": 0.5,
             "starting_relative_humidity": 50,
             "time_resolution_minutes": 30,
             "sources": [
@@ -67,6 +78,15 @@ class TestSimulateEndpoint:
                     "max_emissions_rate_unit": "g/h",
                 }
             ],
+            "external_ambient_conditions": {
+                "name": "mock",
+                "timestamps": ["2024-01-01 07:00", "2024-01-01 07:30"],
+                "timestamp_format": "%Y-%m-%d %H:%M",
+                "timezone": "UTC",
+                "relative_humidity": [60.0, 60.0],
+                "ambient_temperature": [10.0, 10.0],
+                "ambient_temperature_unit": "Celcius",
+            },
         }
         response = client.post("/simulate", json=request_data)
         data = response.json()
@@ -113,8 +133,18 @@ class TestSimulateEndpoint:
             "ceiling_height_unit": "m",
             "internal_temperature": 20,
             "internal_temperature_unit": "c",
+            "air_changes_per_hour": 0.5,
             "starting_relative_humidity": 50,
             "sources": [],
+            "external_ambient_conditions": {
+                "name": "mock",
+                "timestamps": ["2024-01-01 07:00", "2024-01-01 07:30"],
+                "timestamp_format": "%Y-%m-%d %H:%M",
+                "timezone": "UTC",
+                "relative_humidity": [60.0, 60.0],
+                "ambient_temperature": [10.0, 10.0],
+                "ambient_temperature_unit": "Celcius",
+            },
         }
         response = client.post("/simulate", json=request_data)
         assert response.status_code == 200
