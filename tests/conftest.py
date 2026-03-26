@@ -13,4 +13,5 @@ def simulator() -> InternalHumiditySimulator:
         ceiling_height_unit="m",
         internal_temperature=20,
         internal_temperature_unit="c",
+        air_changes_per_hour=0.1,
     )
