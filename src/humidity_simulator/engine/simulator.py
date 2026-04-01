@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from humidity_simulator.models import Dehumidifier, HumiditySource, SimulationResult
+from humidity_simulator.models import Dehumidifier, EnergyForecastTimeSeries, HumiditySource, SimulationResult
 from humidity_simulator.models.humidity_source import AmbientConditions
 
 logger = logging.getLogger(__name__)
@@ -258,6 +258,7 @@ class InternalHumiditySimulator:
         external_ambient_conditions: AmbientConditions,
         *,
         dehumidifier: Dehumidifier | None = None,
+        energy_forecast: EnergyForecastTimeSeries | None = None,
         time_resolution: pd.Timedelta = DEFAULT_TIME_RESOLUTION,
         plot_results: bool = False,
         plot_path: Path | str = DEFAULT_OUTPUT_PATH,
@@ -270,6 +271,9 @@ class InternalHumiditySimulator:
             humidity_sources: List of humidity sources with timeseries data.
             external_ambient_conditions: Class containing external ambient conditions.
             dehumidifier: Optional dehumidifier with binary on/off control schedule.
+            energy_forecast: Optional electricity price forecast (p/kWh). When provided
+                alongside a dehumidifier, the running cost is calculated and included
+                in the result.
             time_resolution: Time resolution for the simulation. Defaults to 30 minutes.
             plot_results: If True, generate and save plots of the simulation results.
             plot_path: Directory path where plots will be saved. Defaults to "outputs".
@@ -357,11 +361,42 @@ class InternalHumiditySimulator:
         e_s = self._saturation_vapor_pressure(self._temperature_celsius)
         built_environment_df["simulated_relative_humidity"] = ((e / e_s) * 100).clip(upper=100.0)
 
+        # Calculate dehumidifier running cost if both dehumidifier and energy forecast provided
+        running_cost_pence: list[float] | None = None
+        if dehumidifier is not None and energy_forecast is not None:
+            logger.info("Calculating dehumidifier running cost from energy forecast")
+            # Normalise "ISO 8601" (with space) to the pandas-recognised "ISO8601"
+            price_fmt = "ISO8601" if energy_forecast.timestamp_format.replace(" ", "") == "ISO8601" else energy_forecast.timestamp_format
+            price_timestamps = pd.to_datetime(energy_forecast.timestamps, format=price_fmt)
+            if price_timestamps.tz is None:
+                price_timestamps = price_timestamps.tz_localize(energy_forecast.timezone)
+            else:
+                price_timestamps = price_timestamps.tz_convert("UTC")
+            price_series = pd.Series(
+                energy_forecast.values,
+                index=price_timestamps,
+                name="price [p/kWh]",
+            )
+            price_series = price_series.resample(time_resolution).ffill()
+            price_series = price_series.reindex(built_environment_df.index, method="ffill")
+
+            wattage_kw = dehumidifier.wattage / 1000
+            dehumidifier_on = (built_environment_df["dehumidifier extracted [g]"] > 0).astype(float)
+            built_environment_df["electricity price [p/kWh]"] = price_series.fillna(0.0)
+            built_environment_df["dehumidifier cost [p]"] = (
+                dehumidifier_on * wattage_kw * time_delta_hours * price_series
+            ).fillna(0.0)
+            running_cost_pence = built_environment_df["dehumidifier cost [p]"].round(4).tolist()
+        else:
+            built_environment_df["electricity price [p/kWh]"] = None
+            built_environment_df["dehumidifier cost [p]"] = None
+
         # Build result
         result = SimulationResult(
             timestamps=[ts.isoformat() for ts in built_environment_df.index],
             relative_humidity=built_environment_df["simulated_relative_humidity"].round(4).tolist(),
             absolute_humidity=built_environment_df["simulated_absolute_humidity"].round(4).tolist(),
+            dehumidifier_running_cost_pence=running_cost_pence,
         )
 
         if plot_results:
@@ -392,7 +427,13 @@ class InternalHumiditySimulator:
         """
         plot_path.mkdir(parents=True, exist_ok=True)
 
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+        has_cost = (
+            "dehumidifier cost [p]" in built_environment_df.columns
+            and built_environment_df["dehumidifier cost [p]"].notna().any()
+        )
+        n_subplots = 4 if has_cost else 3
+        fig, axes = plt.subplots(n_subplots, 1, figsize=(12, 4 * n_subplots), sharex=True)
+        ax1, ax2, ax3 = axes[0], axes[1], axes[2]
 
         # --- Subplot 1: Ambient conditions ---
         ax1.set_title("Simulation Results")
@@ -473,6 +514,49 @@ class InternalHumiditySimulator:
         lines3 = ax3_rh.get_lines() + ax3_abs.get_lines()
         ax3_rh.legend(lines3, [l.get_label() for l in lines3], loc="upper right")
         ax3_rh.grid(alpha=0.3)
+
+        # --- Subplot 4: Electricity price and dehumidifier running cost (conditional) ---
+        if has_cost:
+            ax4 = axes[3]
+            ax4_cost = ax4.twinx()
+
+            ax4.plot(
+                built_environment_df.index,
+                built_environment_df["electricity price [p/kWh]"],
+                color="goldenrod",
+                linewidth=1.5,
+                drawstyle="steps-post",
+                label="Electricity price (p/kWh)",
+            )
+            ax4_cost.plot(
+                built_environment_df.index,
+                built_environment_df["dehumidifier cost [p]"].cumsum(),
+                color="indigo",
+                linewidth=1.5,
+                linestyle="--",
+                label="Cumulative running cost (p)",
+            )
+            ax4.set_ylabel("Electricity price (p/kWh)")
+            ax4_cost.set_ylabel("Cumulative running cost (p)")
+            ax4.set_xlabel("Time")
+            lines4 = ax4.get_lines() + ax4_cost.get_lines()
+            ax4.legend(lines4, [l.get_label() for l in lines4], loc="upper right")
+            ax4.grid(alpha=0.3)
+
+        # --- Shade all subplots when the dehumidifier is on ---
+        dehumidifier_on = built_environment_df["dehumidifier extracted [g]"] > 0
+        if dehumidifier_on.any():
+            bar_width = built_environment_df.index[1] - built_environment_df.index[0]
+            labeled = False
+            for t, on in zip(built_environment_df.index, dehumidifier_on):
+                if on:
+                    for ax in axes:
+                        ax.axvspan(
+                            t, t + bar_width, alpha=0.15, color="green",
+                            label="Dehumidifier on" if not labeled else None,
+                        )
+                    labeled = True
+            axes[0].legend(loc="upper right")
 
         plt.xticks(rotation=45)
         plt.tight_layout()
