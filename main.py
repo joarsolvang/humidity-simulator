@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from humidity_simulator.engine.simulator import InternalHumiditySimulator
-from humidity_simulator.models import HumiditySource
+from humidity_simulator.models import Dehumidifier, HumiditySource
 from humidity_simulator.models.humidity_source import AmbientConditions
 
 logging.basicConfig(
@@ -99,17 +99,41 @@ def main() -> None:
         values_unit="g/h",
     )
 
+    # Dehumidifier: turns on as the shower starts, runs until mid-morning
+    # Typical domestic unit: 250W, 700 g/h extraction rate
+    dehumidifier = Dehumidifier(
+        name="dehumidifier",
+        wattage=250.0,
+        extraction_rate=400.0,
+        extraction_rate_unit="g/h",
+        timestamps=[
+            "2026-03-02 07:00",
+            "2026-03-02 07:15",
+            "2026-03-02 08:00",
+            "2026-03-02 09:00",
+            "2026-03-02 10:00",
+        ],
+        timestamp_format="%Y-%m-%d %H:%M",
+        timezone="UTC",
+        values=[0, 1, 1, 0, 0],  # on during shower and recovery period
+    )
+
     # Run simulation starting at 50% relative humidity
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     plot_name = f"humidity_simulation_{timestamp_str}"
+
+    start_time = datetime.now()
 
     simulator.simulate(
         starting_relative_humidity=50,
         humidity_sources=[shower, breathing, cooking],
         external_ambient_conditions=external_ambient_conditions,
+        dehumidifier=dehumidifier,
         plot_results=True,
         plot_name=plot_name,
     )
+
+    print(f"{datetime.now() - start_time}")
 
 
 if __name__ == "__main__":
