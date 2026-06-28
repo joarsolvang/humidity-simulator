@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
-from dataclasses import dataclass
 
 import pandas as pd
+from pydantic import BaseModel
 
 from humidity_simulator.engine.simulator import InternalHumiditySimulator
 from humidity_simulator.models import Dehumidifier, EnergyForecastTimeSeries, HumiditySource
@@ -17,8 +17,7 @@ HUMIDITY_PENALTY_PENCE = 5.0
 RH_THRESHOLD = 60.0
 
 
-@dataclass
-class GreedyStep:
+class GreedyStep(BaseModel):
     """State snapshot yielded after each attempted turn-off."""
 
     iteration: int
