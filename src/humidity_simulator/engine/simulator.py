@@ -495,8 +495,17 @@ class InternalHumiditySimulator:
             built_environment_df["simulated_relative_humidity"],
             color="steelblue",
             linewidth=2,
-            label="Relative Humidity (%)",
+            label="Internal Relative Humidity (%)",
         )
+
+        ax3_rh.plot(
+            built_environment_df.index,
+            built_environment_df["relative_humidity_2m"],
+            color="grey",
+            linewidth=1.5,
+            label="External Relative Humidity (%)",
+        )
+
         ax3_rh.axhline(y=60, color="orange", linestyle="--", alpha=0.5, label="Max recommended (60%)")
         ax3_rh.axhline(y=40, color="green", linestyle="--", alpha=0.5, label="Min recommended (40%)")
         ax3_rh.set_ylabel("Relative Humidity (%)")
