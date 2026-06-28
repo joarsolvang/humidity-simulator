@@ -9,9 +9,11 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
+    "httpx>=0.28.1",
     "matplotlib>=3.10.8",
     "numpy>=2.4.1",
     "pandas>=2.0.0",
+    "polars>=1.42.0",
     "pydantic>=2.0.0",
     "uvicorn[standard]>=0.34.0",
 ]
@@ -35,6 +37,9 @@ dev = [
     "poethepoet>=0.33.1",
     "pytest>=8.3.5",
     "ruff>=0.11.0",
+]
+development = [
+    "pulp>=3.3.0",
 ]
 
 [tool.ruff]
@@ -68,7 +73,7 @@ lint.select = [
     "SLF",
     "T20",
     "UP",
-    "W",
+    "W"
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -92,8 +97,8 @@ omit = ["tests/*"]
 skip_empty = true
 
 [tool.deptry]
-known_first_party = ["humidity_simulator"]
-per_rule_ignores = {DEP002 = ["uvicorn"]}
+known_first_party = ["humidity_simulator", "agile_predict_api", "openmeteo_client"]
+per_rule_ignores = {DEP002 = ["uvicorn", "pulp"]} # deptry is missing metadata on pulp
 
 [tool.poe.tasks]
 

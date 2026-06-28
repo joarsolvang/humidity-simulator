@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from humidity_simulator.models import HumiditySource, SimulationResult
+from humidity_simulator.models import Dehumidifier, EnergyForecastTimeSeries, HumiditySource, SimulationResult
 from humidity_simulator.models.humidity_source import AmbientConditions
 
 logger = logging.getLogger(__name__)
@@ -200,19 +200,64 @@ class InternalHumiditySimulator:
         # Resample each series within its own time range, then reindex to continuous range
         resampled_series = []
         for series in series_list:
-            series_resampled = series.resample(time_resolution).ffill()
+            old_time_resolution = series.index[1] - series.index[0]
+            fill_limit = max((old_time_resolution.seconds // time_resolution.seconds) - 1, 1)
+            series_resampled = series.resample(time_resolution).ffill(limit=fill_limit)
             series_continuous = series_resampled.reindex(continuous_index)
             resampled_series.append(series_continuous)
 
         df = pd.concat(resampled_series, axis=1)
         return df.fillna(0.0)
 
-    def simulate(
+    def _build_dehumidifier_series(
+        self,
+        dehumidifier: Dehumidifier,
+        continuous_index: pd.DatetimeIndex,
+        time_resolution: pd.Timedelta,
+        target_timezone: str = "UTC",
+    ) -> pd.Series:
+        """Build a timeseries of dehumidifier extraction rates aligned to the simulation grid.
+
+        Where the dehumidifier is on (value=1) the series holds the extraction rate in g/h;
+        where it is off (value=0) or outside the schedule the series holds 0.0.
+
+        Args:
+            dehumidifier: Dehumidifier instance with schedule and metadata.
+            continuous_index: The aligned DatetimeIndex used by the simulation.
+            time_resolution: Simulation time resolution, used to set the ffill limit.
+            target_timezone: Timezone to convert timestamps to. Defaults to "UTC".
+
+        Returns:
+            Series indexed by continuous_index with extraction rate in g/h at each step.
+        """
+        logger.info(f"Building dehumidifier series for '{dehumidifier.name}'")
+        timestamps = pd.to_datetime(dehumidifier.timestamps, format=dehumidifier.timestamp_format)
+        if timestamps.tz is None:
+            timestamps = timestamps.tz_localize(dehumidifier.timezone)
+        timestamps = timestamps.tz_convert(target_timezone)
+
+        extraction_g_per_h = dehumidifier.extraction_rate * self.EMISSION_TO_G_PER_H[dehumidifier.extraction_rate_unit]
+        values = [v * extraction_g_per_h for v in dehumidifier.values]
+
+        series = pd.Series(values, index=timestamps, name=f"{dehumidifier.name} extraction (g/h)")
+
+        if len(series) > 1:
+            schedule_resolution = series.index[1] - series.index[0]
+            fill_limit = max((schedule_resolution.seconds // time_resolution.seconds) - 1, 1)
+        else:
+            fill_limit = 1
+
+        series_resampled = series.resample(time_resolution).ffill(limit=fill_limit)
+        return series_resampled.reindex(continuous_index, fill_value=0.0)
+
+    def simulate(  # noqa: C901
         self,
         starting_relative_humidity: float | int,
         humidity_sources: list[HumiditySource],
         external_ambient_conditions: AmbientConditions,
         *,
+        dehumidifier: Dehumidifier | None = None,
+        energy_forecast: EnergyForecastTimeSeries | None = None,
         time_resolution: pd.Timedelta = DEFAULT_TIME_RESOLUTION,
         plot_results: bool = False,
         plot_path: Path | str = DEFAULT_OUTPUT_PATH,
@@ -221,9 +266,13 @@ class InternalHumiditySimulator:
         """Run the humidity simulation.
 
         Args:
-            starting_humidity: Initial relative humidity in percent (0-100).
+            starting_relative_humidity: Initial relative humidity in percent (0-100).
             humidity_sources: List of humidity sources with timeseries data.
-            external_ambient_conditions: Class containing external ambient conditions
+            external_ambient_conditions: Class containing external ambient conditions.
+            dehumidifier: Optional dehumidifier with binary on/off control schedule.
+            energy_forecast: Optional electricity price forecast (p/kWh). When provided
+                alongside a dehumidifier, the running cost is calculated and included
+                in the result.
             time_resolution: Time resolution for the simulation. Defaults to 30 minutes.
             plot_results: If True, generate and save plots of the simulation results.
             plot_path: Directory path where plots will be saved. Defaults to "outputs".
@@ -268,93 +317,259 @@ class InternalHumiditySimulator:
             external_ambient_conditions_df["ambient_temperature"].values,
         )
         external_ambient_conditions_df = external_ambient_conditions_df.resample(time_resolution).ffill()
-        humidity_conditions_df = external_ambient_conditions_df.join(water_added_per_step["water added [g]"])
-        humidity_conditions_df["water added [g]"] = humidity_conditions_df["water added [g]"].fillna(0)
 
-        ventilated_absolute_humidity = [starting_abs_humidity]
-        for i in range(len(humidity_conditions_df) - 1):
-            remaining_humidity = ventilated_absolute_humidity[i] * self._volume_m3 * (1 - self.air_changes_per_hour)
+        built_environment_df = external_ambient_conditions_df.join(water_added_per_step["water added [g]"])
+        built_environment_df["water added [g]"] = built_environment_df["water added [g]"].fillna(0)
+
+        if dehumidifier is not None:
+            logger.info(f"Applying dehumidifier '{dehumidifier.name}' to simulation")
+            dehumidifier_series = self._build_dehumidifier_series(
+                dehumidifier, built_environment_df.index, time_resolution
+            )
+            built_environment_df["dehumidifier extracted [g]"] = dehumidifier_series * time_delta_hours
+        else:
+            built_environment_df["dehumidifier extracted [g]"] = 0.0
+
+        simulated_absolute_humidity = [starting_abs_humidity]
+        for i in range(len(built_environment_df) - 1):
+            internal_humidity = simulated_absolute_humidity[i] * self._volume_m3 * (1 - self.air_changes_per_hour)
             external_humidity = (
-                humidity_conditions_df["External Absolute Humidity g/m3"].iloc[i]
+                built_environment_df["External Absolute Humidity g/m3"].iloc[i]
                 * self._volume_m3
                 * self.air_changes_per_hour
             )
-            added_humidity = humidity_conditions_df["water added [g]"].iloc[i]
-            ventilated_absolute_humidity.append(
-                (remaining_humidity + external_humidity + added_humidity) / self._volume_m3
+            added_humidity = built_environment_df["water added [g]"].iloc[i]
+
+            next_absolute_humidity = (internal_humidity + external_humidity + added_humidity) / self._volume_m3
+            next_relative_humidity = self._relative_humidity_from_absolute(
+                next_absolute_humidity, self.temperature_celsius
             )
-        humidity_conditions_df["ventilated_absolute_humidity"] = ventilated_absolute_humidity
+
+            extracted_humidity = built_environment_df["dehumidifier extracted [g]"].iloc[i]
+            extracted_humidity *= self.apply_efficiency_reduction(next_relative_humidity)
+
+            simulated_absolute_humidity.append(
+                (next_absolute_humidity * self._volume_m3 - extracted_humidity) / self._volume_m3
+            )
+
+        built_environment_df["simulated_absolute_humidity"] = simulated_absolute_humidity
 
         # Calculate relative humidity (vectorized)
         t_kelvin = self._temperature_celsius + 273.15
-        e = humidity_conditions_df["ventilated_absolute_humidity"] * t_kelvin / 2.16679
+        e = built_environment_df["simulated_absolute_humidity"] * t_kelvin / 2.16679
         e_s = self._saturation_vapor_pressure(self._temperature_celsius)
-        humidity_conditions_df["relative_humidity"] = ((e / e_s) * 100).clip(upper=100.0)
+        built_environment_df["simulated_relative_humidity"] = ((e / e_s) * 100).clip(upper=100.0)
+
+        # Calculate dehumidifier running cost if both dehumidifier and energy forecast provided
+        running_cost_pence: list[float] | None = None
+        if dehumidifier is not None and energy_forecast is not None:
+            logger.info("Calculating dehumidifier running cost from energy forecast")
+            # Normalise "ISO 8601" (with space) to the pandas-recognised "ISO8601"
+            price_fmt = (
+                "ISO8601"
+                if energy_forecast.timestamp_format.replace(" ", "") == "ISO8601"
+                else energy_forecast.timestamp_format
+            )
+            price_timestamps = pd.to_datetime(energy_forecast.timestamps, format=price_fmt)
+            if price_timestamps.tz is None:
+                price_timestamps = price_timestamps.tz_localize(energy_forecast.timezone)
+            else:
+                price_timestamps = price_timestamps.tz_convert("UTC")
+            price_series = pd.Series(
+                energy_forecast.values,
+                index=price_timestamps,
+                name="price [p/kWh]",
+            )
+            price_series = price_series.resample(time_resolution).ffill()
+            price_series = price_series.reindex(built_environment_df.index, method="ffill")
+
+            wattage_kw = dehumidifier.wattage / 1000
+            dehumidifier_on = (built_environment_df["dehumidifier extracted [g]"] > 0).astype(float)
+            built_environment_df["electricity price [p/kWh]"] = price_series.fillna(0.0)
+            built_environment_df["dehumidifier cost [p]"] = (
+                dehumidifier_on * wattage_kw * time_delta_hours * price_series
+            ).fillna(0.0)
+            running_cost_pence = built_environment_df["dehumidifier cost [p]"].round(4).tolist()
+        else:
+            built_environment_df["electricity price [p/kWh]"] = None
+            built_environment_df["dehumidifier cost [p]"] = None
 
         # Build result
         result = SimulationResult(
-            timestamps=[ts.isoformat() for ts in humidity_conditions_df.index],
-            relative_humidity=humidity_conditions_df["relative_humidity"].round(4).tolist(),
-            absolute_humidity=humidity_conditions_df["ventilated_absolute_humidity"].round(4).tolist(),
+            timestamps=[ts.isoformat() for ts in built_environment_df.index],
+            relative_humidity=built_environment_df["simulated_relative_humidity"].round(4).tolist(),
+            absolute_humidity=built_environment_df["simulated_absolute_humidity"].round(4).tolist(),
+            dehumidifier_running_cost_pence=running_cost_pence,
         )
 
         if plot_results:
             if plot_name is None:
                 msg = "plot_name is required when plot_results=True"
                 raise ValueError(msg)
-            self._plot_results(result, Path(plot_path), plot_name)
+            self._plot_results(built_environment_df, Path(plot_path), plot_name)
 
         return result
 
+    def apply_efficiency_reduction(self, relative_humidity: float) -> float:
+        return min(1, relative_humidity**2 / 70**2)
+
     def _plot_results(
         self,
-        result: SimulationResult,
+        built_environment_df: pd.DataFrame,
         plot_path: Path,
         plot_name: str,
     ) -> None:
         """Generate and save plots of the simulation results.
 
         Args:
-            result: The simulation results to plot.
+            built_environment_df: The full simulation DataFrame including ambient conditions,
+                humidity sources, dehumidifier schedule, and simulated results.
             plot_path: Directory path where plots will be saved.
             plot_name: Base name for the plot file (without extension).
         """
         plot_path.mkdir(parents=True, exist_ok=True)
 
-        # Parse timestamps for plotting (ISO format)
-        timestamps = pd.to_datetime(result.timestamps)
+        has_cost = (
+            "dehumidifier cost [p]" in built_environment_df.columns
+            and built_environment_df["dehumidifier cost [p]"].notna().any()
+        )
+        n_subplots = 4 if has_cost else 3
+        fig, axes = plt.subplots(n_subplots, 1, figsize=(12, 4 * n_subplots), sharex=True)
+        ax1, ax2, ax3 = axes[0], axes[1], axes[2]
 
-        # Create figure with two subplots
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+        # --- Subplot 1: Ambient conditions ---
+        ax1.set_title("Simulation Results")
+        ax1_rh = ax1
+        ax1_temp = ax1.twinx()
 
-        # Plot relative humidity
-        ax1.plot(timestamps, result.relative_humidity, "b-", linewidth=2, label="Relative Humidity")
-        ax1.set_ylabel("Relative Humidity (%)")
-        ax1.set_ylim(0, 105)
-        ax1.axhline(y=100, color="r", linestyle="--", alpha=0.5, label="Saturation (100%)")
-        ax1.axhline(y=60, color="orange", linestyle="--", alpha=0.5, label="Recommended max (60%)")
-        ax1.axhline(y=40, color="green", linestyle="--", alpha=0.5, label="Recommended min (40%)")
-        ax1.legend(loc="upper right")
-        ax1.grid(alpha=0.3)
-        ax1.set_title("Internal Humidity Simulation Results")
+        ax1_rh.plot(
+            built_environment_df.index,
+            built_environment_df["relative_humidity_2m"],
+            color="steelblue",
+            linewidth=1.5,
+            label="External RH (%)",
+        )
+        ax1_temp.plot(
+            built_environment_df.index,
+            built_environment_df["ambient_temperature"],
+            color="tomato",
+            linewidth=1.5,
+            linestyle="--",
+            label="External Temp (°C)",
+        )
+        ax1_rh.set_ylabel("Relative Humidity (%)")
+        ax1_temp.set_ylabel("Temperature (°C)")
+        ax1_rh.set_ylim(0, 105)
 
-        # Plot absolute humidity
-        ax2.plot(timestamps, result.absolute_humidity, "g-", linewidth=2, label="Absolute Humidity")
-        ax2.set_ylabel("Absolute Humidity (g/m³)")
-        ax2.set_xlabel("Time")
+        lines1 = ax1_rh.get_lines() + ax1_temp.get_lines()
+        ax1_rh.legend(lines1, [line.get_label() for line in lines1], loc="upper right")
+        ax1_rh.grid(alpha=0.3)
+
+        # --- Subplot 2: Humidity added and extracted ---
+        ax2.plot(
+            built_environment_df.index,
+            built_environment_df["water added [g]"],
+            color="royalblue",
+            linewidth=1.5,
+            drawstyle="steps-post",
+            label="Added (g)",
+        )
+        ax2.plot(
+            built_environment_df.index,
+            built_environment_df["dehumidifier extracted [g]"],
+            color="darkorange",
+            linewidth=1.5,
+            drawstyle="steps-post",
+            label="Extracted (g)",
+        )
+        ax2.set_ylabel("Humidity per step (g)")
         ax2.legend(loc="upper right")
         ax2.grid(alpha=0.3)
 
-        # Rotate x-axis labels for better readability
+        # --- Subplot 3: Simulated results (twin y-axis) ---
+        ax3_rh = ax3
+        ax3_abs = ax3.twinx()
+
+        ax3_rh.plot(
+            built_environment_df.index,
+            built_environment_df["simulated_relative_humidity"],
+            color="steelblue",
+            linewidth=2,
+            label="Relative Humidity (%)",
+        )
+        ax3_rh.axhline(y=60, color="orange", linestyle="--", alpha=0.5, label="Max recommended (60%)")
+        ax3_rh.axhline(y=40, color="green", linestyle="--", alpha=0.5, label="Min recommended (40%)")
+        ax3_rh.set_ylabel("Relative Humidity (%)")
+        ax3_rh.set_ylim(0, 105)
+        ax3_rh.set_xlabel("Time")
+
+        ax3_abs.plot(
+            built_environment_df.index,
+            built_environment_df["simulated_absolute_humidity"],
+            color="seagreen",
+            linewidth=2,
+            linestyle="--",
+            label="Absolute Humidity (g/m³)",
+        )
+        ax3_abs.set_ylabel("Absolute Humidity (g/m³)")
+
+        lines3 = ax3_rh.get_lines() + ax3_abs.get_lines()
+        ax3_rh.legend(lines3, [line.get_label() for line in lines3], loc="upper right")
+        ax3_rh.grid(alpha=0.3)
+
+        # --- Subplot 4: Electricity price and dehumidifier running cost (conditional) ---
+        if has_cost:
+            ax4 = axes[3]
+            ax4_cost = ax4.twinx()
+
+            ax4.plot(
+                built_environment_df.index,
+                built_environment_df["electricity price [p/kWh]"],
+                color="goldenrod",
+                linewidth=1.5,
+                drawstyle="steps-post",
+                label="Electricity price (p/kWh)",
+            )
+            ax4_cost.plot(
+                built_environment_df.index,
+                built_environment_df["dehumidifier cost [p]"].cumsum(),
+                color="indigo",
+                linewidth=1.5,
+                linestyle="--",
+                label="Cumulative running cost (p)",
+            )
+            ax4.set_ylabel("Electricity price (p/kWh)")
+            ax4_cost.set_ylabel("Cumulative running cost (p)")
+            ax4.set_xlabel("Time")
+            lines4 = ax4.get_lines() + ax4_cost.get_lines()
+            ax4.legend(lines4, [line.get_label() for line in lines4], loc="upper right")
+            ax4.grid(alpha=0.3)
+
+        # --- Shade all subplots when the dehumidifier is on ---
+        dehumidifier_on = built_environment_df["dehumidifier extracted [g]"] > 0
+        if dehumidifier_on.any():
+            bar_width = built_environment_df.index[1] - built_environment_df.index[0]
+            labeled = False
+            for t, on in zip(built_environment_df.index, dehumidifier_on, strict=True):
+                if on:
+                    for ax in axes:
+                        ax.axvspan(
+                            t,
+                            t + bar_width,
+                            alpha=0.15,
+                            color="green",
+                            label="Dehumidifier on" if not labeled else None,
+                        )
+                    labeled = True
+            axes[0].legend(loc="upper right")
+
         plt.xticks(rotation=45)
         plt.tight_layout()
 
-        # Save the plot
         output_file = plot_path / f"{plot_name}.png"
         fig.savefig(output_file, dpi=150, bbox_inches="tight")
         plt.close(fig)
-        msg = f"Plot saved to: {output_file}"
-        logger.info(msg)
+        logger.info(f"Plot saved to: {output_file}")
 
     def _get_unit_system(self, unit: str) -> UnitSystem:
         """Determine whether a unit belongs to metric or imperial system."""
