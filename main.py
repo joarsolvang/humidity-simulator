@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pandas as pd
 from agile_predict_api import AgilePredictClient
-from weather import OpenMeteoClient
+from openmeteo_client.weather import OpenMeteoClient
 
 from humidity_simulator.engine.simulator import InternalHumiditySimulator
 from humidity_simulator.models import Dehumidifier, EnergyForecastTimeSeries, HumiditySource
@@ -68,16 +68,16 @@ def scenario_one_bed_flat(
 
     flat_occupation = df["is_weekday"] | ((df["hour"] < 12) & ~df["is_weekday"])
     df["breathing"] = 0
-    df.loc[flat_occupation, "breathing"] = 80.0
+    df.loc[flat_occupation, "breathing"] = 0  # 80.0
 
     weekday_shower = df["is_weekday"] & (df["hour"] == 7) & (df["minute"].isin([0, 15]))
     weekend_shower = ~df["is_weekday"] & (df["hour"] == 9) & (df["minute"].isin([0, 15]))
     df["shower"] = pd.NA
-    df.loc[weekday_shower | weekend_shower, "shower"] = 200.0
+    df.loc[weekday_shower | weekend_shower, "shower"] = 0  # 200.0
 
     weekday_cooking = df["is_weekday"] & (df["hour"] >= 18) & (df["hour"] < 19)
     df["cooking"] = pd.NA
-    df.loc[weekday_cooking, "cooking"] = 15.0
+    df.loc[weekday_cooking, "cooking"] = 0  # 15.0
 
     return [
         _series_to_source(df["breathing"], "Breathing (1 person)"),
@@ -126,7 +126,7 @@ def main() -> None:
         ceiling_height_unit="m",
         internal_temperature=20,
         internal_temperature_unit="c",
-        air_changes_per_hour=0.1,
+        air_changes_per_hour=0.3,
     )
 
     humidity_sources = scenario_one_bed_flat(
@@ -156,9 +156,9 @@ def main() -> None:
     # Fetch Agile electricity price forecast from the API (region H = Southern England)
     agile_client = AgilePredictClient()
     agile_forecasts = agile_client.get_forecast(region="H", days=1)
-    energy_forecast = EnergyForecastTimeSeries.model_validate(
-        agile_forecasts[0].to_timeseries().model_dump()
-    )
+    energy_forecast = EnergyForecastTimeSeries.model_validate(agile_forecasts[0].to_timeseries().model_dump())
+
+    dehumidifier = None
 
     # Run simulation starting at 50% relative humidity
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -176,7 +176,7 @@ def main() -> None:
         plot_name=plot_name,
     )
 
-    print(f"{datetime.now() - start_time}")
+    print(f"Simulation run time: {(datetime.now() - start_time)}")
 
 
 if __name__ == "__main__":

@@ -93,10 +93,11 @@ SCENARIO_FACTORIES = {
     "1 Bed Flat": scenario_one_bed_flat,
 }
 
+
 def load_price_forecast() -> EnergyForecastTimeSeries:
     price_forecast = Path(r"C:\Users\joar_\Documents\Github\humidity-simulator\notebooks\data\agile_14_days.json")
     with Path.open(price_forecast) as file:
-        data  = json.load(file)
+        data = json.load(file)
         forecast = EnergyForecastTimeSeries.model_validate(data)
     return forecast
 
@@ -127,17 +128,20 @@ if __name__ == "__main__":
     timestamps = pd.to_datetime(forecast.timestamps)
     elec_price = pd.Series(forecast.values, index=timestamps, name="Electricity Price")
     timestamps = pd.to_datetime(result.timestamps)
-    relative_humidity_forecast =pd.Series(result.relative_humidity, index=timestamps, name="Relative Humidity Forecast")
-    absolute_humidity_forecast =pd.Series(result.absolute_humidity, index=timestamps, name="Absolute Humidity Forecast")
+    relative_humidity_forecast = pd.Series(
+        result.relative_humidity, index=timestamps, name="Relative Humidity Forecast"
+    )
+    absolute_humidity_forecast = pd.Series(
+        result.absolute_humidity, index=timestamps, name="Absolute Humidity Forecast"
+    )
 
     data_df = elec_price.to_frame()
     data_df = data_df.join(relative_humidity_forecast.to_frame())
     data_df = data_df.join(absolute_humidity_forecast.to_frame())
     data_df = data_df.dropna()
 
-    optimisation_df = data_df.loc[data_df.index[0]:data_df.index[0]+pd.Timedelta(days=1)]
-    opt_emissions_df = emissions_df.loc[emissions_df.index[0]:emissions_df.index[0]+pd.Timedelta(days=2)]
-
+    optimisation_df = data_df.loc[data_df.index[0] : data_df.index[0] + pd.Timedelta(days=1)]
+    opt_emissions_df = emissions_df.loc[emissions_df.index[0] : emissions_df.index[0] + pd.Timedelta(days=2)]
 
     min_relative_humidity = 40
     max_relative_humidity = 60
@@ -147,19 +151,14 @@ if __name__ == "__main__":
     time_delta = 0.25
     forecast_absolute_humidity = optimisation_df["Absolute Humidity Forecast"].to_list()
     temperature_celsius = 20
-    extraction_rate = -400 # g/h
+    extraction_rate = -400  # g/h
 
     upper = simulator._absolute_humidity_from_relative(60, temperature_celsius=temperature_celsius)
     lower = simulator._absolute_humidity_from_relative(40, temperature_celsius=temperature_celsius)
 
     prob = pl.LpProblem("Dehumidifier_Controller", pl.LpMinimize)
     controller_on = pl.LpVariable.dicts("controller_on", range(len(time_stamps)), cat=pl.LpBinary)
-    absolute_humidity = pl.LpVariable.dicts(
-        "absolute_humidity",
-        range(len(time_stamps)),
-        lowBound=lower,
-        upBound=upper
-    )
+    absolute_humidity = pl.LpVariable.dicts("absolute_humidity", range(len(time_stamps)), lowBound=lower, upBound=upper)
     humidity_extracted = pl.LpVariable.dicts("humidity_extracted", range(len(time_stamps)))
     ventilation = pl.LpVariable.dicts("humidity_extracted", range(len(time_stamps)))
 
@@ -170,40 +169,47 @@ if __name__ == "__main__":
     prob += pl.lpSum((cost_of_energy[i] * controller_on[i] * time_delta) for i in range(len(time_stamps)))
 
     for i in range(len(time_stamps) - 1):
-        prob += humidity_extracted[i + 1] == humidity_extracted[i] + controller_on[i]*extraction_rate*time_delta # g
+        prob += (
+            humidity_extracted[i + 1] == humidity_extracted[i] + controller_on[i] * extraction_rate * time_delta
+        )  # g
     prob += humidity_extracted[0] == 0
 
     for i in range(len(time_stamps) - 1):
-        prob += ventilation[i] == -((absolute_humidity[i] * simulator._volume_m3) - (External_RH[i] * simulator._volume_m3 * ACH))
+        prob += ventilation[i] == -(
+            (absolute_humidity[i] * simulator._volume_m3) - (External_RH[i] * simulator._volume_m3 * ACH)
+        )
     prob += humidity_extracted[0] == 0
 
     for i in range(len(time_stamps) - 1):
-        prob += absolute_humidity[i] == ((forecast_absolute_humidity[i] * simulator._volume_m3) + humidity_extracted[i] + ventilation[i]) / simulator._volume_m3
+        prob += (
+            absolute_humidity[i]
+            == ((forecast_absolute_humidity[i] * simulator._volume_m3) + humidity_extracted[i] + ventilation[i])
+            / simulator._volume_m3
+        )
     prob += absolute_humidity[0] == forecast_absolute_humidity[0]
 
     prob.solve(pl.PULP_CBC_CMD(msg=True, timeLimit=15))
 
-    controller_on_solution = [controller_on[i].varValue for i in range(len(time_stamps)-1)]
-    humidity_extracted_solution = [humidity_extracted[i].varValue for i in range(len(time_stamps)-1)]
-    absolute_humidity_solution = [absolute_humidity[i].varValue for i in range(len(time_stamps)-1)]
-    relative_humidity_solution = [simulator._relative_humidity_from_absolute(absolute_humidity, temperature_celsius) for absolute_humidity in absolute_humidity_solution]
-
+    controller_on_solution = [controller_on[i].varValue for i in range(len(time_stamps) - 1)]
+    humidity_extracted_solution = [humidity_extracted[i].varValue for i in range(len(time_stamps) - 1)]
+    absolute_humidity_solution = [absolute_humidity[i].varValue for i in range(len(time_stamps) - 1)]
+    relative_humidity_solution = [
+        simulator._relative_humidity_from_absolute(absolute_humidity, temperature_celsius)
+        for absolute_humidity in absolute_humidity_solution
+    ]
 
     fig, ax = plt.subplots(nrows=4, figsize=(12, 12))
-    ax[0].step(
-        time_stamps,
-        optimisation_df["Electricity Price"],
-        where="post"
-    )
+    ax[0].step(time_stamps, optimisation_df["Electricity Price"], where="post")
 
-    bar_width = (time_stamps[1] - time_stamps[0])
+    bar_width = time_stamps[1] - time_stamps[0]
     dispatch_labeled = False
     charge_labeled = False
 
-    for (t, on) in zip(time_stamps, controller_on_solution):
+    for t, on in zip(time_stamps, controller_on_solution):
         if on:
-            ax[0].axvspan(t, t + bar_width, alpha=0.3, color='green', 
-                    label='Controller On' if not dispatch_labeled else None)
+            ax[0].axvspan(
+                t, t + bar_width, alpha=0.3, color="green", label="Controller On" if not dispatch_labeled else None
+            )
             dispatch_labeled = True
 
     ax[0].set_xlabel("Time")
@@ -211,26 +217,13 @@ if __name__ == "__main__":
     ax[0].grid()
     ax[0].legend()
 
-    ax[1].plot(
-        opt_emissions_df.index,
-        opt_emissions_df["Breathing (1 person) (g/h)"],
-        label="Breathing (1 person)"
-    )
-    ax[1].plot(
-        opt_emissions_df.index,
-        opt_emissions_df["Shower (g/h)"],
-        label="Shower"
-    )
-    ax[1].plot(
-        opt_emissions_df.index,
-        opt_emissions_df["Cooking (Dinner) (g/h)"],
-        label="Cooking"
-    )
+    ax[1].plot(opt_emissions_df.index, opt_emissions_df["Breathing (1 person) (g/h)"], label="Breathing (1 person)")
+    ax[1].plot(opt_emissions_df.index, opt_emissions_df["Shower (g/h)"], label="Shower")
+    ax[1].plot(opt_emissions_df.index, opt_emissions_df["Cooking (Dinner) (g/h)"], label="Cooking")
     ax[1].set_xlabel("Time")
     ax[1].set_ylabel("Humidity Emissions [g/h]")
     ax[1].grid()
     ax[1].legend()
-
 
     ax[2].step(
         time_stamps[:-1],
@@ -239,7 +232,6 @@ if __name__ == "__main__":
     ax[2].set_xlabel("Time")
     ax[2].set_ylabel("Absolute Humidity [g/m3]")
     ax[2].grid()
-
 
     ax[3].step(
         time_stamps[:-1],
@@ -254,5 +246,3 @@ if __name__ == "__main__":
     output_file = DEFAULT_OUTPUT_PATH / f"{plot_name}.png"
     fig.savefig(output_file, dpi=150, bbox_inches="tight")
     plt.close(fig)
-
-
