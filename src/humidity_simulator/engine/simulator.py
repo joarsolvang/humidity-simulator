@@ -248,10 +248,9 @@ class InternalHumiditySimulator:
             fill_limit = 1
 
         series_resampled = series.resample(time_resolution).ffill(limit=fill_limit)
-        series_aligned = series_resampled.reindex(continuous_index, fill_value=0.0)
-        return series_aligned
+        return series_resampled.reindex(continuous_index, fill_value=0.0)
 
-    def simulate(
+    def simulate(  # noqa: C901
         self,
         starting_relative_humidity: float | int,
         humidity_sources: list[HumiditySource],
@@ -327,9 +326,7 @@ class InternalHumiditySimulator:
             dehumidifier_series = self._build_dehumidifier_series(
                 dehumidifier, built_environment_df.index, time_resolution
             )
-            built_environment_df["dehumidifier extracted [g]"] = (
-                dehumidifier_series * time_delta_hours
-            )
+            built_environment_df["dehumidifier extracted [g]"] = dehumidifier_series * time_delta_hours
         else:
             built_environment_df["dehumidifier extracted [g]"] = 0.0
 
@@ -344,10 +341,12 @@ class InternalHumiditySimulator:
             added_humidity = built_environment_df["water added [g]"].iloc[i]
 
             next_absolute_humidity = (internal_humidity + external_humidity + added_humidity) / self._volume_m3
-            next_relative_humidity = self._relative_humidity_from_absolute(next_absolute_humidity, self.temperature_celsius)
+            next_relative_humidity = self._relative_humidity_from_absolute(
+                next_absolute_humidity, self.temperature_celsius
+            )
 
             extracted_humidity = built_environment_df["dehumidifier extracted [g]"].iloc[i]
-            extracted_humidity*= self.apply_efficiency_reduction(next_relative_humidity)
+            extracted_humidity *= self.apply_efficiency_reduction(next_relative_humidity)
 
             simulated_absolute_humidity.append(
                 (next_absolute_humidity * self._volume_m3 - extracted_humidity) / self._volume_m3
@@ -366,7 +365,11 @@ class InternalHumiditySimulator:
         if dehumidifier is not None and energy_forecast is not None:
             logger.info("Calculating dehumidifier running cost from energy forecast")
             # Normalise "ISO 8601" (with space) to the pandas-recognised "ISO8601"
-            price_fmt = "ISO8601" if energy_forecast.timestamp_format.replace(" ", "") == "ISO8601" else energy_forecast.timestamp_format
+            price_fmt = (
+                "ISO8601"
+                if energy_forecast.timestamp_format.replace(" ", "") == "ISO8601"
+                else energy_forecast.timestamp_format
+            )
             price_timestamps = pd.to_datetime(energy_forecast.timestamps, format=price_fmt)
             if price_timestamps.tz is None:
                 price_timestamps = price_timestamps.tz_localize(energy_forecast.timezone)
@@ -407,9 +410,8 @@ class InternalHumiditySimulator:
 
         return result
 
-
-    def apply_efficiency_reduction(self, relative_humidity: int) -> float:
-        return min(1, relative_humidity**2/70**2)
+    def apply_efficiency_reduction(self, relative_humidity: float) -> float:
+        return min(1, relative_humidity**2 / 70**2)
 
     def _plot_results(
         self,
@@ -460,7 +462,7 @@ class InternalHumiditySimulator:
         ax1_rh.set_ylim(0, 105)
 
         lines1 = ax1_rh.get_lines() + ax1_temp.get_lines()
-        ax1_rh.legend(lines1, [l.get_label() for l in lines1], loc="upper right")
+        ax1_rh.legend(lines1, [line.get_label() for line in lines1], loc="upper right")
         ax1_rh.grid(alpha=0.3)
 
         # --- Subplot 2: Humidity added and extracted ---
@@ -512,7 +514,7 @@ class InternalHumiditySimulator:
         ax3_abs.set_ylabel("Absolute Humidity (g/m³)")
 
         lines3 = ax3_rh.get_lines() + ax3_abs.get_lines()
-        ax3_rh.legend(lines3, [l.get_label() for l in lines3], loc="upper right")
+        ax3_rh.legend(lines3, [line.get_label() for line in lines3], loc="upper right")
         ax3_rh.grid(alpha=0.3)
 
         # --- Subplot 4: Electricity price and dehumidifier running cost (conditional) ---
@@ -540,7 +542,7 @@ class InternalHumiditySimulator:
             ax4_cost.set_ylabel("Cumulative running cost (p)")
             ax4.set_xlabel("Time")
             lines4 = ax4.get_lines() + ax4_cost.get_lines()
-            ax4.legend(lines4, [l.get_label() for l in lines4], loc="upper right")
+            ax4.legend(lines4, [line.get_label() for line in lines4], loc="upper right")
             ax4.grid(alpha=0.3)
 
         # --- Shade all subplots when the dehumidifier is on ---
@@ -548,11 +550,14 @@ class InternalHumiditySimulator:
         if dehumidifier_on.any():
             bar_width = built_environment_df.index[1] - built_environment_df.index[0]
             labeled = False
-            for t, on in zip(built_environment_df.index, dehumidifier_on):
+            for t, on in zip(built_environment_df.index, dehumidifier_on, strict=True):
                 if on:
                     for ax in axes:
                         ax.axvspan(
-                            t, t + bar_width, alpha=0.15, color="green",
+                            t,
+                            t + bar_width,
+                            alpha=0.15,
+                            color="green",
                             label="Dehumidifier on" if not labeled else None,
                         )
                     labeled = True

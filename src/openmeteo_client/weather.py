@@ -6,6 +6,7 @@ import httpx
 
 from openmeteo_client.models import HumidityForecast
 
+
 class OpenMeteoClient:
     """Client for accessing Open-Meteo weather forecasting API.
 
