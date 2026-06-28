@@ -167,3 +167,4 @@ cmd = "python tests/utils/wait_for_server.py"
 [tool.poe.tasks.docker-compose-down]
 help = "Stop and remove the Docker container"
 cmd = "docker compose down"
+
