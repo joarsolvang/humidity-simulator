@@ -13,7 +13,7 @@ from humidity_simulator.models.simulation_result import SimulationResult
 
 logger = logging.getLogger(__name__)
 
-HUMIDITY_PENALTY_PENCE = 5.0
+HUMIDITY_PENALTY_PENCE = 20.0
 RH_THRESHOLD = 60.0
 
 
@@ -30,7 +30,7 @@ class GreedyStep(BaseModel):
 
 def _objective(result: SimulationResult) -> float:
     running_cost = sum(result.dehumidifier_running_cost_pence or [])
-    penalty = HUMIDITY_PENALTY_PENCE * sum(1 for rh in result.relative_humidity if rh > RH_THRESHOLD)
+    penalty = HUMIDITY_PENALTY_PENCE * sum(max(0, rh - RH_THRESHOLD) for rh in result.relative_humidity)
     return running_cost + penalty
 
 
