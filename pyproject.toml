@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "celery[redis]>=5.3.0",
+    "flower>=2.0.0",
     "redis>=5.0.0",
     "fastapi>=0.115.0",
     "httpx>=0.28.1",
@@ -101,7 +102,7 @@ skip_empty = true
 
 [tool.deptry]
 known_first_party = ["humidity_simulator", "agile_predict_api", "openmeteo_client"]
-per_rule_ignores = {DEP002 = ["uvicorn", "pulp"]} # deptry is missing metadata on pulp
+per_rule_ignores = {DEP002 = ["uvicorn", "pulp", "flower"]} # deptry exceptions
 
 [tool.poe.tasks]
 
