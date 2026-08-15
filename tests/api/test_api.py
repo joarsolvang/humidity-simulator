@@ -20,6 +20,9 @@ def _submit_and_await_result(client: httpx.Client, request_data: dict) -> dict:
     deadline = time.monotonic() + _POLL_TIMEOUT
     while time.monotonic() < deadline:
         result_response = client.get(f"/simulate/jobs/{job_id}/result")
+        if result_response.status_code == 404:
+            time.sleep(_POLL_INTERVAL)
+            continue
         result_response.raise_for_status()
         data = result_response.json()
         if data["status"] in ("complete", "error"):
