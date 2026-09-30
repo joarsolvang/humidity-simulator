@@ -1,11 +1,4 @@
-"""Azure Functions entry point.
-
-Wraps the existing FastAPI app (dehumidifier_controller.main:app) via ASGI so
-all routes (/health, /simulate, /optimisation) are served unchanged behind a
-single HTTP-triggered function. Auth is enforced at the function level (a
-function key is required on every request) since this plan drops the
-internal-only ingress that Container Apps provided for free.
-"""
+"""Azure Functions entry point."""
 
 import azure.functions as func
 
