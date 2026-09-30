@@ -1,30 +1,19 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import pandas as pd
-import redis
-from celery import Task
 
-from dehumidifier_controller.celery_app import celery_app
 from dehumidifier_controller.greedy_optimisation import greedy_optimiser
-from dehumidifier_controller.models import OptimisationRequest
+from dehumidifier_controller.models import OptimisationRequest, OptimisationResult
 from humidity_simulator.engine.simulator import InternalHumiditySimulator
-from humidity_simulator.models import Dehumidifier, EnergyForecastTimeSeries
+from humidity_simulator.models import Dehumidifier, EnergyForecastTimeSeries, SimulationResult
 from humidity_simulator.models.api_models import SimulationRequest
 
 logger = logging.getLogger(__name__)
 
-REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-JOB_TTL_SECONDS = 3600
-
 _TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M"
 _TIMEZONE = "UTC"
-
-
-def _get_redis() -> redis.Redis:  # type: ignore[type-arg]
-    return redis.from_url(REDIS_URL)
 
 
 def _align_prices(
@@ -91,69 +80,50 @@ def _setup_optimisation(
     return simulator, aligned_prices, dehumidifier_template, time_resolution
 
 
-@celery_app.task(bind=True)
-def run_optimisation(self: Task, request_dict: dict[str, object]) -> None:
-    """Celery task: run the greedy optimiser and stream each step to Redis."""
-    job_id: str = self.request.id
-    r = _get_redis()
-    r.set(f"job:{job_id}:status", "running", ex=JOB_TTL_SECONDS)
-    logger.info(f"Starting optimisation job {job_id}")
+def run_optimisation(request: OptimisationRequest) -> OptimisationResult:
+    """Run the greedy optimiser to completion and return the final accepted schedule."""
+    logger.info("Starting optimisation")
 
-    try:
-        request = OptimisationRequest.model_validate(request_dict)
-        simulator, aligned_prices, dehumidifier_template, time_resolution = _setup_optimisation(request)
+    simulator, aligned_prices, dehumidifier_template, time_resolution = _setup_optimisation(request)
 
-        for step in greedy_optimiser(
-            simulator=simulator,
-            aligned_prices=aligned_prices,
-            humidity_sources=request.sources,
-            external_ambient_conditions=request.external_ambient_conditions,
-            energy_forecast=request.energy_forecast,
-            dehumidifier_template=dehumidifier_template,
-            starting_relative_humidity=request.starting_relative_humidity,
-            time_resolution=time_resolution,
-        ):
-            with r.pipeline() as pipe:
-                pipe.rpush(f"job:{job_id}:steps", step.model_dump_json())
-                pipe.expire(f"job:{job_id}:steps", JOB_TTL_SECONDS)
-                pipe.execute()
+    final_step = None
+    for step in greedy_optimiser(
+        simulator=simulator,
+        aligned_prices=aligned_prices,
+        humidity_sources=request.sources,
+        external_ambient_conditions=request.external_ambient_conditions,
+        energy_forecast=request.energy_forecast,
+        dehumidifier_template=dehumidifier_template,
+        starting_relative_humidity=request.starting_relative_humidity,
+        time_resolution=time_resolution,
+    ):
+        final_step = step
 
-        r.set(f"job:{job_id}:status", "complete", ex=JOB_TTL_SECONDS)
-        logger.info(f"Completed optimisation job {job_id}")
+    if final_step is None:
+        msg = "Optimisation produced no steps (empty schedule)"
+        raise ValueError(msg)
 
-    except Exception as exc:
-        logger.exception(f"Optimisation job {job_id} failed: {exc}")
-        r.set(f"job:{job_id}:status", "error", ex=JOB_TTL_SECONDS)
-        r.set(f"job:{job_id}:error", str(exc), ex=JOB_TTL_SECONDS)
-        raise
+    logger.info("Completed optimisation")
+    return OptimisationResult(
+        schedule=final_step.schedule,
+        objective=final_step.objective,
+        simulation_result=final_step.simulation_result,
+    )
 
 
-@celery_app.task(bind=True)
-def run_simulation(self: Task, request_dict: dict[str, object]) -> None:
-    """Celery task: run a single simulation and store the result in Redis."""
-    job_id: str = self.request.id
-    r = _get_redis()
-    r.set(f"job:{job_id}:status", "running", ex=JOB_TTL_SECONDS)
-    logger.info(f"Starting simulation job {job_id}")
+def run_simulation(request: SimulationRequest) -> SimulationResult:
+    """Run a single simulation and return the result."""
+    logger.info("Starting simulation")
 
-    try:
-        request = SimulationRequest.model_validate(request_dict)
-        time_resolution = pd.Timedelta(minutes=request.time_resolution_minutes)
-        simulator = _build_simulator(request)
+    time_resolution = pd.Timedelta(minutes=request.time_resolution_minutes)
+    simulator = _build_simulator(request)
 
-        result = simulator.simulate(
-            starting_relative_humidity=request.starting_relative_humidity,
-            humidity_sources=request.sources,
-            external_ambient_conditions=request.external_ambient_conditions,
-            time_resolution=time_resolution,
-        )
+    result = simulator.simulate(
+        starting_relative_humidity=request.starting_relative_humidity,
+        humidity_sources=request.sources,
+        external_ambient_conditions=request.external_ambient_conditions,
+        time_resolution=time_resolution,
+    )
 
-        r.set(f"job:{job_id}:result", result.model_dump_json(), ex=JOB_TTL_SECONDS)
-        r.set(f"job:{job_id}:status", "complete", ex=JOB_TTL_SECONDS)
-        logger.info(f"Completed simulation job {job_id}")
-
-    except Exception as exc:
-        logger.exception(f"Simulation job {job_id} failed: {exc}")
-        r.set(f"job:{job_id}:status", "error", ex=JOB_TTL_SECONDS)
-        r.set(f"job:{job_id}:error", str(exc), ex=JOB_TTL_SECONDS)
-        raise
+    logger.info("Completed simulation")
+    return result
