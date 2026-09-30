@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "azure-functions>=1.21.0",
     "fastapi>=0.115.0",
     "httpx>=0.28.1",
     "matplotlib>=3.10.8",
@@ -99,7 +100,7 @@ skip_empty = true
 
 [tool.deptry]
 known_first_party = ["humidity_simulator", "agile_predict_api", "openmeteo_client"]
-per_rule_ignores = {DEP002 = ["uvicorn", "pulp"]} # deptry exceptions
+per_rule_ignores = {DEP002 = ["uvicorn", "pulp", "azure-functions"]} # deptry exceptions: uvicorn/azure-functions are only used outside src/ (Dockerfile CMD, function_app.py)
 
 [tool.poe.tasks]
 
@@ -124,19 +125,19 @@ help = "Run all pre-commit checks"
 sequence = ["fmt", "lint", "test"]
 
 [tool.poe.tasks.fmt-ruff-check]
-cmd = "ruff check --fix-only src tests"
+cmd = "ruff check --fix-only src tests function_app.py"
 
 [tool.poe.tasks.fmt-ruff-format]
-cmd = "ruff format src tests"
+cmd = "ruff format src tests function_app.py"
 
 [tool.poe.tasks.lint-ruff-check]
-cmd = "ruff check src tests"
+cmd = "ruff check src tests function_app.py"
 
 [tool.poe.tasks.lint-ruff-format]
-cmd = "ruff format --check src tests"
+cmd = "ruff format --check src tests function_app.py"
 
 [tool.poe.tasks.lint-mypy]
-cmd = "mypy src tests"
+cmd = "mypy src tests function_app.py"
 
 [tool.poe.tasks.lint-deps]
 cmd = "deptry src"
@@ -167,4 +168,8 @@ cmd = "python tests/utils/wait_for_server.py"
 [tool.poe.tasks.docker-compose-down]
 help = "Stop and remove the Docker container"
 cmd = "docker compose down"
+
+[tool.poe.tasks.func-requirements]
+help = "Regenerate requirements.txt from uv.lock for Azure Functions (func start / deploy)"
+cmd = "uv export --no-hashes --no-dev --no-editable -o requirements.txt"
 
