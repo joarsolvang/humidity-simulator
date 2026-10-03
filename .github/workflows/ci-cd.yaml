@@ -72,7 +72,7 @@ jobs:
         run: echo "✅ All Checks Passed"
 
   deploy:
-    name: Deploy to Azure Container Apps
+    name: Deploy to Azure Functions
     needs: [all]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -80,35 +80,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Generate requirements.txt for the Functions/Oryx build
+        run: uv export --no-hashes --no-dev --no-editable -o requirements.txt
+
       - name: Azure login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Log in to ACR
-        run: az acr login --name acrtork
-
-      - name: Build and push image
-        run: |
-          docker build \
-            -t acrtork.azurecr.io/tork/api:${{ github.sha }} \
-            -t acrtork.azurecr.io/tork/api:latest \
-            .
-          docker push acrtork.azurecr.io/tork/api:${{ github.sha }}
-          docker push acrtork.azurecr.io/tork/api:latest
-
-      - name: Deploy api
-        run: |
-          az containerapp update \
-            --name ca-tork-api \
-            --resource-group rg-tork-prod \
-            --image acrtork.azurecr.io/tork/api:${{ github.sha }} \
-            --output none
-
-      - name: Deploy worker
-        run: |
-          az containerapp update \
-            --name ca-tork-worker \
-            --resource-group rg-tork-prod \
-            --image acrtork.azurecr.io/tork/api:${{ github.sha }} \
-            --output none
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: func-tork-api
+          package: "."
