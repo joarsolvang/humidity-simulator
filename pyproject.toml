@@ -25,7 +25,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/humidity_simulator"]
+packages = [
+    "src/humidity_simulator",
+    "src/dehumidifier_controller",
+    "src/agile_predict_api",
+    "src/openmeteo_client",
+]
 
 [tool.hatch.version]
 path = "src/humidity_simulator/__init__.py"

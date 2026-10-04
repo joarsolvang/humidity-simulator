@@ -104,3 +104,5 @@ jobs:
         with:
           app-name: func-tork-api
           package: "."
+          sku: flexconsumption
+          remote-build: true
