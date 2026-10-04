@@ -176,3 +176,10 @@ cython_debug/
 *.png
 /notebooks
 CLAUDE.md
+
+# Azure Functions
+local.settings.json
+requirements.txt
+.python_packages/
+bin/
+obj/
