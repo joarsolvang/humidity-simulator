@@ -11,7 +11,7 @@ Dockerfile
 .dockerignore
 local.settings.json
 local.settings.json.example
-*.md
+CLAUDE.md
 .coverage
 htmlcov/
 example_data/
